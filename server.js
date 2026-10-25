@@ -1,11 +1,12 @@
 const fs = require("node:fs");
 const https = require("node:https");
+const http = require("node:http");
 const path = require("node:path");
 const express = require("express");
 const { WebSocketServer, WebSocket } = require("ws");
 
 const app = express();
-const PORT = 8443;
+const PORT = process.env.PORT || 8443;
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -17,13 +18,24 @@ app.get("/receiver", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "receiver.html"));
 });
 
-const server = https.createServer(
-  {
-    key: fs.readFileSync(path.join(__dirname, "key.pem")),
-    cert: fs.readFileSync(path.join(__dirname, "cert.pem")),
-  },
-  app
-);
+let server;
+const keyPath = path.join(__dirname, "key.pem");
+const certPath = path.join(__dirname, "cert.pem");
+
+// Use HTTPS locally if key/cert files exist; fall back to HTTP on Render/production
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  server = https.createServer(
+    {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    },
+    app
+  );
+  console.log("Running with local HTTPS/SSL certificates.");
+} else {
+  server = http.createServer(app);
+  console.log("Running on HTTP (Production mode - SSL terminated by Render load balancer).");
+}
 
 const wss = new WebSocketServer({ server, path: "/signal" });
 const peers = { camera: null, receiver: null };
@@ -35,7 +47,9 @@ function send(peer, message) {
 }
 
 wss.on("connection", (ws, req) => {
-  const url = new URL(req.url, "https://localhost");
+  const proto = req.headers["x-forwarded-proto"] || (server instanceof https.Server ? "https" : "http");
+  const host = req.headers.host || "localhost";
+  const url = new URL(req.url, `${proto}://${host}`);
   const role = url.searchParams.get("role");
 
   if (!["camera", "receiver"].includes(role)) {
@@ -87,7 +101,8 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Phone camera: https://localhost:${PORT}/`);
-  console.log(`OBS receiver: https://localhost:${PORT}/receiver`);
-  console.log("Use your computer's LAN IP on your phone.");
+  const protocol = server instanceof https.Server ? "https" : "http";
+  console.log(`Phone camera: ${protocol}://localhost:${PORT}/`);
+  console.log(`OBS receiver: ${protocol}://localhost:${PORT}/receiver`);
+  console.log("Use your computer's LAN IP on your phone when testing locally.");
 });
