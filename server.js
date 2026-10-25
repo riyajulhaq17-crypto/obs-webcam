@@ -17,13 +17,13 @@ app.get("/receiver", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "receiver.html"));
 });
 
-const server = https.createServer(
-  {
-    key: fs.readFileSync(path.join(__dirname, "key.pem")),
-    cert: fs.readFileSync(path.join(__dirname, "cert.pem")),
-  },
-  app
-);
+// const server = https.createServer(
+//   {
+//     key: fs.readFileSync(path.join(__dirname, "key.pem")),
+//     cert: fs.readFileSync(path.join(__dirname, "cert.pem")),
+//   },
+//   app
+// );
 
 const wss = new WebSocketServer({ server, path: "/signal" });
 const peers = { camera: null, receiver: null };
