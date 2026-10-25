@@ -1,11 +1,13 @@
 const fs = require("node:fs");
+const http = require("node:http");
 const https = require("node:https");
 const path = require("node:path");
 const express = require("express");
 const { WebSocketServer, WebSocket } = require("ws");
 
 const app = express();
-const PORT = 8443;
+// Render assigns a dynamic port via process.env.PORT, fallback to 8443 for local testing
+const PORT = process.env.PORT || 8443;
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -17,13 +19,24 @@ app.get("/receiver", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "receiver.html"));
 });
 
-const server = https.createServer(
-  {
-    key: fs.readFileSync(path.join(__dirname, "key.pem")),
-    cert: fs.readFileSync(path.join(__dirname, "cert.pem")),
-  },
-  app
-);
+// Check if local SSL certificates exist
+let server;
+const keyPath = path.join(__dirname, "key.pem");
+const certPath = path.join(__dirname, "cert.pem");
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  // Local development with HTTPS
+  server = https.createServer(
+    {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    },
+    app
+  );
+} else {
+  // Production (Render) uses standard HTTP because Render handles SSL
+  server = http.createServer(app);
+}
 
 const wss = new WebSocketServer({ server, path: "/signal" });
 const peers = { camera: null, receiver: null };
@@ -35,7 +48,8 @@ function send(peer, message) {
 }
 
 wss.on("connection", (ws, req) => {
-  const url = new URL(req.url, "https://localhost");
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const url = new URL(req.url, `${proto}://localhost`);
   const role = url.searchParams.get("role");
 
   if (!["camera", "receiver"].includes(role)) {
@@ -87,7 +101,5 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Phone camera: https://localhost:${PORT}/`);
-  console.log(`OBS receiver: https://localhost:${PORT}/receiver`);
-  console.log("Use your computer's LAN IP on your phone.");
+  console.log(`Server running on port ${PORT}`);
 });
